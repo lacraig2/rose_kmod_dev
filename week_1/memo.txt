@@ -1,0 +1,7 @@
+Week 1
+
+This week I implemented the assigned "useless kernel assignment". I had some
+difficulties translating elements from the older 2.X kernel to the 4.X kernel
+for which I compiled the system. This was useful information and was some good
+review on the material involved in the procfs system as well as the workqueue
+and delayed_workqueue updates.

@@ -32,9 +32,9 @@ long hash_page(struct vm_area_struct *vma){
 		int ret = copy_from_user(temp_buf, (void*)pos, sizeof(temp_buf));
 		if (ret >= 0){
 			for (i=0; i<128; i++){
-				if (temp_buf[i] != 0){
-					printk(KERN_INFO "not zero");
-				}
+//				if (temp_buf[i] != 0){
+//					printk(KERN_INFO "not zero");
+//				}
 				checksum += temp_buf[i];
 			}
 		}
@@ -58,17 +58,17 @@ long page_hash(long *vma){
 			}
 		}
 	}
-	struct crypto_hash *tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
-	struct hash_desc desc;
-	if (IS_ERR(tfm)){
-		prink("Allocation failed");
-		return 0;
-	}
-	desc.tfm = tfm;
-	desc.flags = 0;
-	crypto_hash_init(&desc);
-	crypto_hash_digest();
-	crypto_free_hash(tfm);	
+	//struct crypto_hash *tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
+	//struct hash_desc desc;
+	//if (IS_ERR(tfm)){
+	//	prink("Allocation failed");
+	//	return 0;
+	//}
+	//desc.tfm = tfm;
+	//desc.flags = 0;
+	//crypto_hash_init(&desc);
+	//crypto_hash_digest();
+	//crypto_free_hash(tfm);	
 	return checksum;	
 } 
 void list_pages(struct mm_struct *mm){
@@ -108,6 +108,7 @@ ssize_t write_pid_get_hash(struct file* file, const char __user *buf, size_t cou
 	printk(KERN_INFO "PID passed: %d\n", pid);
 	struct task_struct *task = get_current();
 	//procs_
+	list_pages(task->mm);
 	printk(KERN_INFO "%lx checksum: %lx", task->mm->start_code, page_hash(task->mm->start_code));
 //	page_hash(task->mm->start_code);
 	return count;

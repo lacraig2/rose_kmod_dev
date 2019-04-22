@@ -4,6 +4,7 @@
 #include <linux/sched/signal.h>
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
+#include <crypto/hash.h>
 //#include <linux/task.h>
 
 MODULE_LICENSE("GPL");
@@ -15,67 +16,56 @@ ssize_t write_pid_get_hash(struct file*, const char __user*, size_t, loff_t*);
 struct proc_dir_entry *hash_pid;
 struct file_operations hash_pid_fops = {.owner = THIS_MODULE, .write=write_pid_get_hash};
 
-
-unsigned char temp_buf[128];
-
-// crypto_alloc_hash
-// physical level
-// find pfn
-// current process -> current 
-
-long hash_page(struct vm_area_struct *vma){
+bool alg_sum_page(char* alg_name, struct vm_area_struct *vma, uint8_t* result){
 	unsigned long pos = vma->vm_start;
 	unsigned long end = vma->vm_end;
-	long checksum = 0;
-	int i = 0;
-	for (; pos < end; pos +=128){
-		int ret = copy_from_user(temp_buf, (void*)pos, sizeof(temp_buf));
-		if (ret >= 0){
-			for (i=0; i<128; i++){
-//				if (temp_buf[i] != 0){
-//					printk(KERN_INFO "not zero");
-//				}
-				checksum += temp_buf[i];
-			}
-		}
-	}
-	return checksum;	
-} 
 
-long page_hash(long *vma){
-	unsigned long pos = vma;
-	unsigned long end = vma + PAGE_SIZE;
-	long checksum = 0;
-	int i = 0;
-	for (; pos < end; pos +=128){
-		int ret = copy_from_user(temp_buf, (void*)pos, sizeof(temp_buf));
-		if (ret >= 0){
-			for (i=0; i<128; i++){
-				if (temp_buf[i] != 0){
-				//	printk(KERN_INFO "not zero");
-				}
-				checksum += temp_buf[i];
-			}
-		}
+	struct shash_desc *sdesc;
+	struct crypto_shash *alg;
+	alg = crypto_alloc_shash(alg_name, 0, CRYPTO_ALG_ASYNC);
+	sdesc =  kzalloc(sizeof(*sdesc) + crypto_shash_descsize(alg), GFP_KERNEL);
+	if (sdesc == NULL){
+		printk(KERN_INFO "did not allocate shash_desc");
+		return false;
 	}
-	//struct crypto_hash *tfm = crypto_alloc_hash("sha1", 0, CRYPTO_ALG_ASYNC);
-	//struct hash_desc desc;
-	//if (IS_ERR(tfm)){
-	//	prink("Allocation failed");
-	//	return 0;
-	//}
-	//desc.tfm = tfm;
-	//desc.flags = 0;
-	//crypto_hash_init(&desc);
-	//crypto_hash_digest();
-	//crypto_free_hash(tfm);	
-	return checksum;	
-} 
+	if (alg == NULL){
+		printk(KERN_INFO "algorithm not allocated");
+		return false;
+	}
+
+	sdesc->tfm = alg; 
+	sdesc->flags = CRYPTO_TFM_REQ_MAY_SLEEP;
+	if (sdesc->tfm == NULL)
+		return false;
+	crypto_shash_init(sdesc);
+	char *buffer = kmalloc(1024, GFP_KERNEL);
+	while (pos < end){
+		copy_from_user(buffer, (void*)pos, 1024);
+		crypto_shash_update(sdesc, buffer, 1024);
+//		printk(KERN_INFO "Copying %p to %p", pos, buffer);
+		pos += (pos > end) ? -1024 : 1024;
+	}
+	kfree(buffer);
+//	printk(KERN_INFO "Location %p", result);
+	crypto_shash_final(sdesc,result);
+	crypto_free_shash(sdesc->tfm);
+	return true;
+}
+
 void list_pages(struct mm_struct *mm){
 	if (mm != NULL){
 		struct vm_area_struct *vma = mm->mmap;
+		int n;
 		while (vma != NULL){
-			printk(KERN_INFO "vm_start: %lx vm_end: %lx checksum: %lx", vma->vm_start, vma->vm_end, hash_page(vma));
+			uint8_t *md5 = kzalloc((15+1)*sizeof(char), GFP_KERNEL);
+			bool proper = alg_sum_page("md5", vma, md5);
+			md5[15] = 0;
+			if (proper){
+				printk(KERN_INFO "vm_start: %lx vm_end: %lx hash: %15phN", vma->vm_start, vma->vm_end,md5);
+			}else{
+				printk(KERN_INFO "highly improper");
+			}
+			kzfree(md5);
 			vma = vma->vm_next;
 		}
 	}
@@ -84,12 +74,11 @@ void list_pages(struct mm_struct *mm){
 void procs_info_print(int PID){
 	struct task_struct *task_list;
 	for_each_process(task_list){
-		//if (task_list->pid == PID){
-		//	task_lock(task_list);
-		//	list_pages(task_list->mm);
-		//	task_unlock(task_list);
-		//}
-//		page_hash(task_list->mm->start_code);
+		if (task_list->pid == PID){
+			task_lock(task_list);
+			list_pages(task_list->mm);
+			task_unlock(task_list);
+		}
 	}
 }
 
@@ -106,11 +95,7 @@ ssize_t write_pid_get_hash(struct file* file, const char __user *buf, size_t cou
 		return -EFAULT;
 	}
 	printk(KERN_INFO "PID passed: %d\n", pid);
-	struct task_struct *task = get_current();
-	//procs_
-	list_pages(task->mm);
-	printk(KERN_INFO "%lx checksum: %lx", task->mm->start_code, page_hash(task->mm->start_code));
-//	page_hash(task->mm->start_code);
+	procs_info_print(pid);
 	return count;
 }
 
